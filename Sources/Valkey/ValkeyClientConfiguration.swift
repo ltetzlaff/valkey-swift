@@ -161,6 +161,13 @@ public struct ValkeyClientConfiguration: Sendable {
         /// Maximum number of in-progress new connection requests to run at any one time
         public var maximumConcurrentConnectionRequests: Int
 
+        /// The maximum duration a connection may live before it is closed on release.
+        ///
+        /// When set, connections that have been open longer than this duration are
+        /// closed instead of being parked back into the pool. `nil` means connections
+        /// live indefinitely (the default).
+        public var maxConnectionLifetime: Duration?
+
         /// Creates the configuration for a Valkey client connection pool.
         /// - Parameters:
         ///   - minimumConnectionCount: The minimum number of connections to maintain.
@@ -191,6 +198,7 @@ public struct ValkeyClientConfiguration: Sendable {
             self.idleTimeout = idleTimeout
             self.circuitBreakerTripAfter = circuitBreakerTripAfter
             self.maximumConcurrentConnectionRequests = maximumConcurrentConnectionRequests
+            self.maxConnectionLifetime = nil
         }
     }
 

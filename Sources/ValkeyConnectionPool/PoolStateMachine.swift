@@ -35,6 +35,9 @@ struct PoolConfiguration: Sendable {
 
     @usableFromInline
     var maximumConcurrentConnectionRequests: Int = 20
+
+    @usableFromInline
+    var maxConnectionLifetime: Duration?
 }
 
 @usableFromInline
@@ -354,11 +357,11 @@ where
     }
 
     @inlinable
-    mutating func releaseConnection(_ connection: Connection, streams: UInt16) -> Action {
+    mutating func releaseConnection(_ connection: Connection, streams: UInt16, now: Instant) -> Action {
         guard let (index, context) = self.connections.releaseConnection(connection.id, streams: streams) else {
             return .none()
         }
-        return self.handleAvailableConnection(index: index, availableContext: context)
+        return self.handleAvailableConnection(index: index, availableContext: context, now: now)
     }
 
     mutating func cancelRequest(id: RequestID) -> Action {
@@ -373,7 +376,7 @@ where
     }
 
     @inlinable
-    mutating func connectionEstablished(_ connection: Connection, maxStreams: UInt16) -> Action {
+    mutating func connectionEstablished(_ connection: Connection, maxStreams: UInt16, now: Instant) -> Action {
         switch self.poolState {
         case .running:
             break
@@ -388,8 +391,8 @@ where
             fatalError("Connection pool is not running")
         }
 
-        let (index, context) = self.connections.newConnectionEstablished(connection, maxStreams: maxStreams)
-        return self.handleAvailableConnection(index: index, availableContext: context)
+        let (index, context) = self.connections.newConnectionEstablished(connection, maxStreams: maxStreams, now: now)
+        return self.handleAvailableConnection(index: index, availableContext: context, now: now)
     }
 
     @inlinable
@@ -579,12 +582,12 @@ where
     }
 
     @inlinable
-    mutating func connectionKeepAliveDone(_ connection: Connection) -> Action {
+    mutating func connectionKeepAliveDone(_ connection: Connection, now: Instant) -> Action {
         precondition(self.configuration.keepAliveDuration != nil)
         guard let (index, context) = self.connections.keepAliveSucceeded(connection.id) else {
             return .none()
         }
-        return self.handleAvailableConnection(index: index, availableContext: context)
+        return self.handleAvailableConnection(index: index, availableContext: context, now: now)
     }
 
     @inlinable
@@ -701,7 +704,8 @@ where
     @inlinable
     /*private*/ mutating func handleAvailableConnection(
         index: Int,
-        availableContext: ConnectionGroup.AvailableConnectionContext
+        availableContext: ConnectionGroup.AvailableConnectionContext,
+        now: Instant
     ) -> Action {
         // this connection was busy before
         let requests = self.requestQueue.pop(max: availableContext.info.availableStreams)
@@ -752,6 +756,19 @@ where
                         return .none()
                     }
                 }
+
+                // Close connections that have exceeded their maximum lifetime.
+                // The pool will create a fresh replacement via connectionClosed().
+                if let maxLifetime = self.configuration.maxConnectionLifetime,
+                   self.connections.isConnectionExpired(at: index, maxLifetime: maxLifetime, now: now) {
+                    if let closeAction = self.connections.closeConnectionIfIdle(at: index) {
+                        return .init(
+                            request: .none,
+                            connection: .closeConnection(closeAction.connection, closeAction.timersToCancel)
+                        )
+                    }
+                }
+
                 let timers = self.connections.parkConnection(at: index, hasBecomeIdle: newIdle).map(self.mapTimers)
 
                 let connectionsRequired = self.configuration.minimumConnectionCount - Int(self.connections.stats.active)

@@ -196,14 +196,14 @@ extension PoolStateMachine {
         ///            Call ``parkConnection(at:)``, ``leaseConnection(at:)`` or ``closeConnection(at:)``
         ///            with the supplied index after this.
         @inlinable
-        mutating func newConnectionEstablished(_ connection: Connection, maxStreams: UInt16) -> (Int, AvailableConnectionContext) {
+        mutating func newConnectionEstablished(_ connection: Connection, maxStreams: UInt16, now: Instant) -> (Int, AvailableConnectionContext) {
             guard let index = self.connections.firstIndex(where: { $0.id == connection.id }) else {
                 preconditionFailure("There is a new connection that we didn't request!")
             }
             self.stats.connecting -= 1
             self.stats.idle += 1
             self.stats.availableStreams += maxStreams
-            let connectionInfo = self.connections[index].connected(connection, maxStreams: maxStreams)
+            let connectionInfo = self.connections[index].connected(connection, maxStreams: maxStreams, now: now)
             // TODO: If this is an overflow connection, but we are currently also creating a
             //       persisted connection, we might want to swap those.
             let context = self.makeAvailableConnectionContextForConnection(at: index, info: connectionInfo)
@@ -480,6 +480,13 @@ extension PoolStateMachine {
                 connection: closeAction.connection!,
                 timersToCancel: closeAction.cancelTimers
             )
+        }
+
+        /// Returns `true` if the connection at `index` has exceeded `maxLifetime`.
+        @inlinable
+        func isConnectionExpired(at index: Int, maxLifetime: Duration, now: Instant) -> Bool {
+            guard let createdAt = self.connections[index].createdAt else { return false }
+            return createdAt.duration(to: now) >= maxLifetime
         }
 
         // MARK: Connection close/removal

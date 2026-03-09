@@ -157,6 +157,12 @@ extension ValkeyChannelHandler {
                     self = .closed(nil)
                     return .closeWithError(ValkeyClientError(.unsolicitedToken, message: "Received a token without having sent a command"))
                 }
+                // Release backing storage when all commands have been consumed.
+                // Deque never shrinks its allocation, so an explicit replacement
+                // is needed to reclaim memory after bursts.
+                if state.pendingCommands.isEmpty {
+                    state.pendingCommands = .init()
+                }
                 self = .active(state)
                 let deadlineCallback: DeadlineCallbackAction =
                     if let nextCommand = state.pendingCommands.first {

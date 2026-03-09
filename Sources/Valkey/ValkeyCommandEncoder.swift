@@ -64,6 +64,14 @@ public struct ValkeyCommandEncoder {
 
     @inlinable
     package mutating func reset() {
-        self.buffer.clear()
+        // ByteBuffer.clear() only resets reader/writer indices without releasing
+        // capacity. After large commands the buffer can retain significant
+        // allocations indefinitely. Replace it when it exceeds a reasonable
+        // threshold to bound per-connection memory growth.
+        if self.buffer.capacity > 8192 {
+            self.buffer = .init()
+        } else {
+            self.buffer.clear()
+        }
     }
 }
