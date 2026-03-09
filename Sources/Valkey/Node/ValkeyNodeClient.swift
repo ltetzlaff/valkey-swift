@@ -85,6 +85,7 @@ package final class ValkeyNodeClient: Sendable {
         poolConfiguration.idleTimeout = connectionFactory.configuration.connectionPool.idleTimeout
         poolConfiguration.circuitBreakerTripAfter = connectionFactory.configuration.connectionPool.circuitBreakerTripAfter
         poolConfiguration.maximumConcurrentConnectionRequests = connectionFactory.configuration.connectionPool.maximumConcurrentConnectionRequests
+        poolConfiguration.maxConnectionLifetime = connectionFactory.configuration.connectionPool.maxConnectionLifetime
 
         self.readOnly = readOnly
         self.connectionPool = .init(

@@ -133,6 +133,9 @@ extension PoolStateMachine {
         @usableFromInline
         private(set) var nextTimerID: Int = 0
 
+        @usableFromInline
+        private(set) var createdAt: Instant?
+
         @inlinable
         init(id: Connection.ID) {
             self.id = id
@@ -195,9 +198,10 @@ extension PoolStateMachine {
         }
 
         @inlinable
-        mutating func connected(_ connection: Connection, maxStreams: UInt16) -> ConnectionAvailableInfo {
+        mutating func connected(_ connection: Connection, maxStreams: UInt16, now: Instant) -> ConnectionAvailableInfo {
             switch self.state {
             case .starting:
+                self.createdAt = now
                 self.state = .idle(connection, maxStreams: maxStreams, keepAlive: .notScheduled, idleTimer: nil)
                 return .idle(availableStreams: maxStreams, newIdle: true)
             case .backingOff, .idle, .leased, .closing, .closed:

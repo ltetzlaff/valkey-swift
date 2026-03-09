@@ -126,6 +126,16 @@ public struct ConnectionPoolConfiguration: Sendable {
     /// Maximum number of in-progress new connection requests to run at any one time
     public var maximumConcurrentConnectionRequests: Int
 
+    /// The maximum duration a connection may live before it is closed on release.
+    ///
+    /// When set, connections that have been open longer than this duration are
+    /// closed instead of being parked back into the pool. The pool will create
+    /// a replacement connection if needed to satisfy the minimum count.
+    /// This prevents unbounded growth of per-connection buffers (NIO ByteBuffer,
+    /// Deque backing storage, encoder allocations).
+    /// `nil` means connections live indefinitely (the default).
+    public var maxConnectionLifetime: Duration?
+
     /// initializer
     public init() {
         self.minimumConnectionCount = 0
@@ -134,6 +144,7 @@ public struct ConnectionPoolConfiguration: Sendable {
         self.circuitBreakerTripAfter = .seconds(60)
         self.idleTimeout = .seconds(60)
         self.maximumConcurrentConnectionRequests = 20
+        self.maxConnectionLifetime = nil
     }
 }
 
@@ -237,8 +248,9 @@ where
 
     @inlinable
     public func releaseConnection(_ connection: Connection, streams: UInt16 = 1) {
+        let now = self.clock.now
         self.modifyStateAndRunActions { state in
-            state.stateMachine.releaseConnection(connection, streams: streams)
+            state.stateMachine.releaseConnection(connection, streams: streams, now: now)
         }
     }
 
@@ -480,11 +492,13 @@ where
     /*private*/ func connectionEstablished(_ connectionBundle: ConnectionAndMetadata<Connection>) {
         self.observabilityDelegate.connectSucceeded(id: connectionBundle.connection.id, streamCapacity: connectionBundle.maximalStreamsOnConnection)
 
+        let now = self.clock.now
         self.modifyStateAndRunActions { state in
             state.lastConnectError = nil
             return state.stateMachine.connectionEstablished(
                 connectionBundle.connection,
-                maxStreams: connectionBundle.maximalStreamsOnConnection
+                maxStreams: connectionBundle.maximalStreamsOnConnection,
+                now: now
             )
         }
     }
@@ -509,8 +523,9 @@ where
 
                 self.observabilityDelegate.keepAliveSucceeded(id: connection.id)
 
+                let now = self.clock.now
                 self.modifyStateAndRunActions { state in
-                    state.stateMachine.connectionKeepAliveDone(connection)
+                    state.stateMachine.connectionKeepAliveDone(connection, now: now)
                 }
             } catch {
                 self.observabilityDelegate.keepAliveFailed(id: connection.id, error: error)
@@ -601,6 +616,7 @@ extension PoolConfiguration {
         self.idleTimeoutDuration = configuration.idleTimeout
         self.circuitBreakerTripAfter = configuration.circuitBreakerTripAfter
         self.maximumConcurrentConnectionRequests = configuration.maximumConcurrentConnectionRequests
+        self.maxConnectionLifetime = configuration.maxConnectionLifetime
     }
 }
 
